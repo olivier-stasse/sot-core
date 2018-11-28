@@ -1,20 +1,11 @@
 /*
- * Copyright 2010,
+ * Copyright 2010-2018, CNRS
  * Florent Lamiraux
+ * Olivier Stasse
  *
  * CNRS
  *
- * This file is part of sot-core.
- * sot-core is free software: you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public License
- * as published by the Free Software Foundation, either version 3 of
- * the License, or (at your option) any later version.
- * sot-core is distributed in the hope that it will be
- * useful, but WITHOUT ANY WARRANTY; without even the implied warranty
- * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.  You should
- * have received a copy of the GNU Lesser General Public License along
- * with sot-core.  If not, see <http://www.gnu.org/licenses/>.
+ * See LICENSE.txt
  */
 
 #ifndef SOT_DEVICE_HH
@@ -23,6 +14,8 @@
 /* --------------------------------------------------------------------- */
 /* --- INCLUDE --------------------------------------------------------- */
 /* --------------------------------------------------------------------- */
+
+#include <urdf_parser/urdf_parser.h>
 
 /* -- MaaL --- */
 #include <dynamic-graph/linear-algebra.h>
@@ -34,9 +27,14 @@ namespace dg = dynamicgraph;
 #include <sot/core/matrix-geometry.hh>
 #include "sot/core/api.hh"
 
+#include "sot/core/joint-device.hh"
+#include "sot/core/joint-device.hxx"
+
 namespace dynamicgraph {
   namespace sot {
 
+    /// Deprecated:
+    //@{
     /// Define the type of input expected by the robot
     enum ControlInput
     {
@@ -50,6 +48,9 @@ namespace dynamicgraph {
     {
       "noInteg", "oneInteg", "twoInteg"
     };
+    //@}
+
+    
 
     /* --------------------------------------------------------------------- */
     /* --- CLASS ----------------------------------------------------------- */
@@ -72,12 +73,22 @@ namespace dynamicgraph {
         FORCE_SIGNAL_LARM
       };
 
+      friend class JointDeviceVectorElement<FREE_FLYER>;
+      friend class JointDeviceVectorElement<REVOLUTE>;
+      friend class JointDeviceVectorElement<LINEAR>;
+      
     protected:
+      /// State vector of the robot
       dg::Vector state_;
+      /// Velocity vector of the robot.
       dg::Vector velocity_;
+      
       bool sanityCheck_;
       dg::Vector vel_control_;
-      ControlInput controlInputType_;
+      /// Specifies the control input by each element of the state vector.
+      std::vector<ControlInput> controlInputType_;
+
+      /// 
       bool withForceSignals[4];
       PeriodicCall periodicCallBefore_;
       PeriodicCall periodicCallAfter_;
@@ -104,6 +115,7 @@ namespace dynamicgraph {
       virtual void setVelocity(const dg::Vector & vel);
       virtual void setSecondOrderIntegration();
       virtual void setNoIntegration();
+      /// Set control input type.
       virtual void setControlInputType(const std::string& cit);
       virtual void increment(const double & dt = 5e-2);
 
@@ -124,14 +136,30 @@ namespace dynamicgraph {
 
     public: /* --- SIGNALS --- */
 
+      /// Input signal handling the control vector
+      /// This entity needs a control vector to be send to the hardware.
+      /// The control vector can be position, velocity and effort.
+      /// It depends on each of the actuator
       dynamicgraph::SignalPtr<dg::Vector,int> controlSIN;
-      dynamicgraph::SignalPtr<dg::Vector,int> attitudeSIN;
-      dynamicgraph::SignalPtr<dg::Vector,int> zmpSIN;
 
+      /// \name This part is specific to robot where a stabilizer is provided outside the
+      /// SoT framework and needs input.
+      /// @{ 
+      /// Input signal handling the attitude of the freeflyer.
+      dynamicgraph::SignalPtr<dg::Vector,int> attitudeSIN;
+      /// Input signal handling the ZMP of the system 
+      dynamicgraph::SignalPtr<dg::Vector,int> zmpSIN;
+      ///@}
+      
       /// \name Device current state.
       /// \{
+      /// \brief Output integrated state from control.
       dynamicgraph::Signal<dg::Vector,int> stateSOUT;
+      /// \brief Output integrated velocity from control
       dynamicgraph::Signal<dg::Vector,int> velocitySOUT;
+      /// \brief Output attitude provided by the hardware
+      /// Typically this can be provided by an external estimator
+      /// such an integrated/hardware implemented EKF.
       dynamicgraph::Signal<MatrixRotation,int> attitudeSOUT;
       /*! \brief The current state of the robot from the command viewpoint. */
       dynamicgraph::Signal<dg::Vector,int> motorcontrolSOUT;

@@ -42,34 +42,16 @@ using namespace dynamicgraph;
 const std::string Device::CLASS_NAME = "Device";
 
 /* --------------------------------------------------------------------- */
+/* --- JointDeviceVectorElement----------------------------------------- */
+/* --------------------------------------------------------------------- */
+
+
+
+
+/* --------------------------------------------------------------------- */
 /* --- CLASS ----------------------------------------------------------- */
 /* --------------------------------------------------------------------- */
 
-void Device::integrateRollPitchYaw(Vector& state, const Vector& control,
-                                   double dt)
-{
-  using Eigen::AngleAxisd;
-  using Eigen::Vector3d;
-  using Eigen::QuaternionMapd;
-
-  typedef se3::SpecialEuclideanOperation<3> SE3;
-  Eigen::Matrix<double, 7, 1> qin, qout;
-  qin.head<3>() = state.head<3>();
-
-  QuaternionMapd quat (qin.tail<4>().data());
-  quat = AngleAxisd(state(5), Vector3d::UnitZ())
-       * AngleAxisd(state(4), Vector3d::UnitY())
-       * AngleAxisd(state(3), Vector3d::UnitX());
-
-  SE3().integrate (qin, control.head<6>()*dt, qout);
-
-  // Update freeflyer pose
-  ffPose_.translation() = qout.head<3>();
-  state.head<3>() = qout.head<3>();
-
-  ffPose_.linear() = QuaternionMapd(qout.tail<4>().data()).toRotationMatrix();
-  state.segment<3>(3) = ffPose_.linear().eulerAngles(2,1,0).reverse();
-}
 
 const MatrixHomogeneous& Device::freeFlyerPose() const
 {
@@ -187,6 +169,36 @@ Device( const std::string& n )
                new command::Setter<Device,string>
                (*this, &Device::setControlInputType, docstring));
 
+    /* SET of SoT control input type per joint */
+    docstring =
+        "\n"
+        "    Set the type of control input per joint on the SoT side \n"
+        "    which can be  \n"
+        "    torque, acceleration, velocity, or position\n"
+        "\n";
+
+    addCommand("setSoTControlInputType",
+	       command::makeCommandVoid2(*this,&Device::setSoTControlInputType,
+                 command::docCommandVoid2 ("Set SoT control input type per joint",
+					   "Vector of joint name",
+					   "Vector of control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
+                 ));
+
+
+    /* SET of HW control input type per joint */
+    docstring =
+        "\n"
+        "    Set the type of control input per joint which can be  \n"
+        "    torque, acceleration, velocity, or position\n"
+        "\n";
+
+    addCommand("setHWControlInputType",
+	       command::makeCommandVoid2(*this,&Device::setHWControlInputType,
+                 command::docCommandVoid2 ("Set HW control input type per joint",
+					   "Vector of joint name",
+					   "Vector of control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
+                 ));
+    
     docstring =
         "\n"
         "    Enable/Disable sanity checks\n"
@@ -364,6 +376,27 @@ setSanityCheck(const bool & enableCheck)
 }
 
 void Device::
+setSoTControlType(const std::vector<std::string> &VectorOfNames,
+		  const std::vector<int> &VectorOfControl)
+{
+  
+}
+
+void Device::
+setHWControlType(const std::vector<std::string> &VectorOfNames,
+		 const std::vector<int> &VectorOfControl)
+{
+  
+}
+
+void Device::
+setURDFModel(std::string &aURDFModel)
+{
+  modelURDF_ = urdf::parseURDF(aURDFModel);
+  
+}
+
+void Device::
 setPositionBounds(const Vector& lower, const Vector& upper)
 {
   std::ostringstream oss;
@@ -454,6 +487,7 @@ increment( const double & dt )
 
   /* Position the signals corresponding to sensors. */
   stateSOUT .setConstant( state_ ); stateSOUT.setTime( time+1 );
+
   //computation of the velocity signal
   if( controlInputType_==CONTROL_INPUT_TWO_INTEGRATION )
   {
@@ -517,7 +551,7 @@ saturateBounds (double& val, const double& lower, const double& upper)
     if (saturateBounds (val(i), lower(i), upper(i)))                           \
       dgRTLOG () << "Robot "what" bound violation at DoF " << i <<             \
       ": requested " << old << " but set " << val(i) << '\n';                  \
-  }
+-  }
 
 void Device::integrate( const double & dt )
 {
