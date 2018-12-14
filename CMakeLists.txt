@@ -49,6 +49,7 @@ SET(BOOST_COMPONENTS thread filesystem program_options unit_test_framework syste
 SEARCH_FOR_EIGEN()
 
 ADD_REQUIRED_DEPENDENCY("dynamic-graph >= 3.0.0")
+ADD_OPTIONAL_DEPENDENCY("yaml-cpp")
 
 OPTION (BUILD_PYTHON_INTERFACE "Build the python binding" ON)
 IF(BUILD_PYTHON_INTERFACE)

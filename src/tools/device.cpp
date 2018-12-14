@@ -24,6 +24,7 @@
 /* SOT */
 #define ENABLE_RT_LOG
 
+#include "sot/core/joint-device.hxx"
 #include "sot/core/device.hh"
 #include <sot/core/debug.hh>
 using namespace std;
@@ -31,11 +32,9 @@ using namespace std;
 #include <dynamic-graph/factory.h>
 #include <dynamic-graph/real-time-logger.h>
 #include <dynamic-graph/all-commands.h>
-#include <Eigen/Geometry>
 #include <dynamic-graph/linear-algebra.h>
 #include <sot/core/matrix-geometry.hh>
 
-#include <pinocchio/multibody/liegroup/special-euclidean.hpp>
 using namespace dynamicgraph::sot;
 using namespace dynamicgraph;
 
@@ -69,7 +68,7 @@ Device::
 Device::
 Device( const std::string& n )
   :Entity(n)
-  ,state_(6)
+  ,position_(6)
   ,sanityCheck_(true)
   ,controlInputType_(CONTROL_INPUT_ONE_INTEGRATION)
   ,controlSIN( NULL,"Device("+n+")::input(double)::control" )   
@@ -102,14 +101,25 @@ Device( const std::string& n )
   forcesSOUT[3] =
       new Signal<Vector, int>("Device("+n+")::output(vector6)::forceLARM");
 
-  signalRegistration( controlSIN<<stateSOUT<<robotState_<<robotVelocity_
-                      <<velocitySOUT<<attitudeSOUT
-                      <<attitudeSIN<<zmpSIN <<*forcesSOUT[0]<<*forcesSOUT[1]
-                      <<*forcesSOUT[2]<<*forcesSOUT[3] <<previousControlSOUT
-                      <<pseudoTorqueSOUT << motorcontrolSOUT << ZMPPreviousControllerSOUT );
-  state_.fill(.0); stateSOUT.setConstant( state_ );
+  signalRegistration( controlSIN
+		      << stateSOUT
+		      << robotState_
+		      << robotVelocity_
+                      << velocitySOUT
+		      << attitudeSOUT
+                      << attitudeSIN
+		      << zmpSIN
+		      << *forcesSOUT[0]
+		      << *forcesSOUT[1]
+                      << *forcesSOUT[2]
+		      << *forcesSOUT[3]
+		      << previousControlSOUT
+                      << pseudoTorqueSOUT
+		      << motorcontrolSOUT
+		      << ZMPPreviousControllerSOUT );
+  position_.fill(.0); stateSOUT.setConstant( position_ );
 
-  velocity_.resize(state_.size()); velocity_.setZero();
+  velocity_.resize(position_.size()); velocity_.setZero();
   velocitySOUT.setConstant( velocity_ );
 
   /* --- Commands --- */
@@ -177,11 +187,11 @@ Device( const std::string& n )
         "    torque, acceleration, velocity, or position\n"
         "\n";
 
-    addCommand("setSoTControlInputType",
-	       command::makeCommandVoid2(*this,&Device::setSoTControlInputType,
+    addCommand("setSoTControlType",
+	       command::makeCommandVoid2(*this,&Device::setSoTControlType,
                  command::docCommandVoid2 ("Set SoT control input type per joint",
-					   "Vector of joint name",
-					   "Vector of control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
+					   "Joint name",
+					   "Control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
                  ));
 
 
@@ -192,11 +202,11 @@ Device( const std::string& n )
         "    torque, acceleration, velocity, or position\n"
         "\n";
 
-    addCommand("setHWControlInputType",
-	       command::makeCommandVoid2(*this,&Device::setHWControlInputType,
+    addCommand("setHWControlType",
+	       command::makeCommandVoid2(*this,&Device::setHWControlType,
                  command::docCommandVoid2 ("Set HW control input type per joint",
-					   "Vector of joint name",
-					   "Vector of control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
+					   "Joint name",
+					   "Control type: [TORQUE|ACCELERATION|VELOCITY|POSITION]")
                  ));
     
     docstring =
@@ -222,6 +232,22 @@ Device( const std::string& n )
                  command::docCommandVoid2 ("Set robot torque bounds", "vector: lower bounds", "vector: upper bounds")
                  ));
 
+    addCommand("setPositionPos",
+               command::makeCommandVoid2(*this,&Device::setPositionPos,
+					 command::docCommandVoid2 ("Set position of the joint in vector of position", "Joint name", "index")
+					 ));
+
+    addCommand("setVelocityPos",
+               command::makeCommandVoid2(*this,&Device::setVelocityPos,
+                 command::docCommandVoid2 ("Set position of the joint in vector of velocity", "Joint name", "index")
+                 ));
+
+    addCommand("setAccelerationPos",
+               command::makeCommandVoid2(*this,&Device::setAccelerationPos,
+                 command::docCommandVoid2 ("Set position of the joint in vector of acceleration", "Joint name", "index")
+                 ));
+
+
     // Handle commands and signals called in a synchronous way.
     periodicCallBefore_.addSpecificCommands(*this, commandMap, "before.");
     periodicCallAfter_.addSpecificCommands(*this, commandMap, "after.");
@@ -232,11 +258,13 @@ Device( const std::string& n )
 void Device::
 setStateSize( const unsigned int& size )
 {
-  state_.resize(size); state_.fill( .0 );
-  stateSOUT .setConstant( state_ );
-  previousControlSOUT.setConstant( state_ );
-  pseudoTorqueSOUT.setConstant( state_ );
-  motorcontrolSOUT .setConstant( state_ );
+  position_.resize(size); position_.fill( .0 );
+  position_.resize(size);
+  acceleration_.resize(size);
+  stateSOUT .setConstant( position_ );
+  previousControlSOUT.setConstant( position_ );
+  pseudoTorqueSOUT.setConstant( position_ );
+  motorcontrolSOUT .setConstant( position_ );
 
   Device::setVelocitySize(size);
 
@@ -282,9 +310,9 @@ setState( const Vector& st )
         throw std::invalid_argument ("Invalid control mode type.");
     }
   }
-  state_ = st;
-  stateSOUT .setConstant( state_ );
-  motorcontrolSOUT .setConstant( state_ );
+  position_ = st;
+  stateSOUT .setConstant( position_ );
+  motorcontrolSOUT .setConstant( position_ );
 }
 
 void Device::
@@ -306,7 +334,7 @@ void Device::
 setRoot( const MatrixHomogeneous & worldMwaist )
 {
   VectorRollPitchYaw r = (worldMwaist.linear().eulerAngles(2,1,0)).reverse();
-  Vector q = state_;
+  Vector q = position_;
   q = worldMwaist.translation(); // abusive ... but working.
   for( unsigned int i=0;i<3;++i ) q(i+3) = r(i);
 }
@@ -314,8 +342,9 @@ setRoot( const MatrixHomogeneous & worldMwaist )
 void Device::
 setSecondOrderIntegration()
 {
+  std::cout << "setSecondOrderIntegration deprecated" << std::endl;
   controlInputType_ = CONTROL_INPUT_TWO_INTEGRATION;
-  velocity_.resize(state_.size());
+  velocity_.resize(position_.size());
   velocity_.setZero();
   velocitySOUT.setConstant( velocity_ );
 }
@@ -323,8 +352,9 @@ setSecondOrderIntegration()
 void Device::
 setNoIntegration()
 {
+  std::cout << "setNoIntegration deprecated" << std::endl;  
   controlInputType_ = CONTROL_INPUT_NO_INTEGRATION;
-  velocity_.resize(state_.size());
+  velocity_.resize(position_.size());
   velocity_.setZero();
   velocitySOUT.setConstant( velocity_ );
 }
@@ -332,6 +362,7 @@ setNoIntegration()
 void Device::
 setControlInputType(const std::string& cit)
 {
+  std::cout << "setControlInputType deprecated" << std::endl;  
   for(int i=0; i<CONTROL_INPUT_SIZE; i++)
     if(cit==ControlInput_s[i])
     {
@@ -346,7 +377,7 @@ void Device::
 setSanityCheck(const bool & enableCheck)
 {
   if (enableCheck) {
-    const Vector::Index& s = state_.size();
+    const Vector::Index& s = position_.size();
     switch (controlInputType_) {
       case CONTROL_INPUT_TWO_INTEGRATION:
         dgRTLOG()
@@ -376,17 +407,78 @@ setSanityCheck(const bool & enableCheck)
 }
 
 void Device::
-setSoTControlType(const std::vector<std::string> &VectorOfNames,
-		  const std::vector<int> &VectorOfControl)
+setControlType(const std::string &jointName,
+	       const std::string &strCtrlType,
+	       std::map<std::string, ControlType> &aCtrlType)
 {
-  
+  for(int j=0;j<4;j++)
+    {
+      if (strCtrlType==ControlType_s[j])
+	aCtrlType[jointName] = (ControlType)j;
+    }
+
+}
+	      
+void Device::
+setSoTControlType(const std::string &jointNames,
+		  const std::string &strCtrlType)
+{
+  setControlType(jointNames,strCtrlType,sotControlType_);
 }
 
 void Device::
-setHWControlType(const std::vector<std::string> &VectorOfNames,
-		 const std::vector<int> &VectorOfControl)
+setHWControlType(const std::string &jointNames,
+		 const std::string &strCtrlType)
+{
+  setControlType(jointNames,strCtrlType,hwControlType_);
+}
+
+void Device::
+setPositionPos(const std::string &jointName,
+	       const unsigned & index)
 {
   
+  JointDeviceVariant & aJointDeviceVariant = jointDevices_[jointName];
+  JointDeviceVisitorSetPositionVectorPos
+    aJointDeviceVisitorSetPositionVectorPos(index);
+  boost::apply_visitor(aJointDeviceVisitorSetPositionVectorPos,
+		       aJointDeviceVariant);
+}
+
+void Device::
+setVelocityPos(const std::string &jointName,
+	       const unsigned & index)
+{
+  
+  JointDeviceVariant & aJointDeviceVariant = jointDevices_[jointName];
+  JointDeviceVisitorSetVelocityVectorPos
+    aJointDeviceVisitorSetVelocityVectorPos(index);
+  boost::apply_visitor(aJointDeviceVisitorSetVelocityVectorPos,
+		       aJointDeviceVariant);
+}
+
+void Device::
+setAccelerationPos(const std::string &jointName,
+	       const unsigned & index)
+{
+  
+  JointDeviceVariant & aJointDeviceVariant = jointDevices_[jointName];
+  JointDeviceVisitorSetAccelerationVectorPos
+    aJointDeviceVisitorSetAccelerationVectorPos(index);
+  boost::apply_visitor(aJointDeviceVisitorSetAccelerationVectorPos,
+		       aJointDeviceVariant);
+}
+
+void Device::
+setControlPos(const std::string &jointName,
+	       const unsigned & index)
+{
+  
+  JointDeviceVariant & aJointDeviceVariant = jointDevices_[jointName];
+  JointDeviceVisitorSetControlVectorPos
+    aJointDeviceVisitorSetControlVectorPos(index);
+  boost::apply_visitor(aJointDeviceVisitorSetControlVectorPos,
+		       aJointDeviceVariant);
 }
 
 void Device::
@@ -394,18 +486,83 @@ setURDFModel(std::string &aURDFModel)
 {
   modelURDF_ = urdf::parseURDF(aURDFModel);
   
+  /// Iterates over joint of the URDF model.
+  for(std::map<std::string,urdf::JointSharedPtr>::iterator joint_it =
+	modelURDF_->joints_.begin();
+      joint_it != modelURDF_->joints_.end();
+      joint_it++)
+    {
+      JointDeviceFreeFlyer aJointDeviceFreeFlyer(7);
+      JointDeviceRevolute aJointDeviceRevolute;
+      JointDeviceLinear aJointDeviceLinear;
+
+      JointDeviceVariant aJointDeviceVariant;
+
+      
+      urdf::JointSharedPtr aJointSharedPtr = joint_it->second;
+      if (aJointSharedPtr->type==urdf::Joint::REVOLUTE)
+	aJointDeviceVariant = aJointDeviceRevolute;
+      else if (aJointSharedPtr->type==urdf::Joint::PRISMATIC)
+	aJointDeviceVariant = aJointDeviceLinear;
+      else if (aJointSharedPtr->type==urdf::Joint::FIXED)
+	aJointDeviceVariant = aJointDeviceFreeFlyer;
+      else if (aJointSharedPtr->type==urdf::Joint::FLOATING)
+	aJointDeviceVariant = aJointDeviceFreeFlyer;
+
+      JointDeviceVisitorSetJointName aJointDeviceVisitorJointName(aJointSharedPtr->name);
+      boost::apply_visitor(aJointDeviceVisitorJointName,aJointDeviceVariant);
+      
+      urdf::JointLimitsSharedPtr aJointLimitsSharedPtr = aJointSharedPtr->limits;
+      if (aJointLimitsSharedPtr!=NULL)
+	{
+	  std::cout << "joint limits: "
+		    << aJointSharedPtr->name << " " 
+		    << aJointLimitsSharedPtr->lower << " "
+		    << aJointLimitsSharedPtr->upper << " "
+		    << aJointLimitsSharedPtr->effort << " "
+		    << aJointLimitsSharedPtr->velocity << std::endl;
+	  dg::Vector lower(1),upper(1);
+	  
+	  /// Set position bounds
+	  lower(0) = aJointLimitsSharedPtr->lower;
+	  upper(0) = aJointLimitsSharedPtr->upper;
+	  JointDeviceVisitorSetPositionBounds
+	    aJointDeviceVisitorSetPositionBounds(lower,upper);
+	  boost::apply_visitor(aJointDeviceVisitorSetPositionBounds,
+			       aJointDeviceVariant);
+
+	  /// Set velocity bounds
+	  lower(0) = -aJointLimitsSharedPtr->velocity;
+	  upper(0) = aJointLimitsSharedPtr->velocity;
+	  JointDeviceVisitorSetVelocityBounds
+	    aJointDeviceVisitorSetVelocityBounds(lower,upper);
+	  boost::apply_visitor(aJointDeviceVisitorSetVelocityBounds,
+			       aJointDeviceVariant);
+	  
+	  /// Set torque bounds
+	  lower(0) = -aJointLimitsSharedPtr->effort;
+	  upper(0) = aJointLimitsSharedPtr->effort;
+	  JointDeviceVisitorSetTorqueBounds
+	    aJointDeviceVisitorSetTorqueBounds(lower,upper);
+	  boost::apply_visitor(aJointDeviceVisitorSetTorqueBounds,
+			       aJointDeviceVariant);
+      
+	}
+      jointDevices_[aJointSharedPtr->name] = aJointDeviceVariant;
+    }
+  
 }
 
 void Device::
 setPositionBounds(const Vector& lower, const Vector& upper)
 {
   std::ostringstream oss;
-  if (lower.size() != state_.size()) {
-    oss << "Lower bound size should be " << state_.size();
+  if (lower.size() != position_.size()) {
+    oss << "Lower bound size should be " << position_.size();
     throw std::invalid_argument (oss.str());
   }
-  if (upper.size() != state_.size()) {
-    oss << "Upper bound size should be " << state_.size();
+  if (upper.size() != position_.size()) {
+    oss << "Upper bound size should be " << position_.size();
     throw std::invalid_argument (oss.str());
   }
   lowerPosition_ = lower;
@@ -431,14 +588,14 @@ setVelocityBounds(const Vector& lower, const Vector& upper)
 void Device::
 setTorqueBounds  (const Vector& lower, const Vector& upper)
 {
-  // TODO I think the torque bounds size are state_.size()-6...
+  // TODO I think the torque bounds size are position_.size()-6...
   std::ostringstream oss;
-  if (lower.size() != state_.size()) {
-    oss << "Lower bound size should be " << state_.size();
+  if (lower.size() != position_.size()) {
+    oss << "Lower bound size should be " << position_.size();
     throw std::invalid_argument (oss.str());
   }
-  if (upper.size() != state_.size()) {
-    oss << "Lower bound size should be " << state_.size();
+  if (upper.size() != position_.size()) {
+    oss << "Lower bound size should be " << position_.size();
     throw std::invalid_argument (oss.str());
   }
   lowerTorque_ = lower;
@@ -481,12 +638,12 @@ increment( const double & dt )
   controlSIN( time );
   sotDEBUG(25) << "u" <<time<<" = " << controlSIN.accessCopy() << endl;
 
-  /* Integration of numerical values. This function is virtual. */
-  integrate( dt );
-  sotDEBUG(25) << "q" << time << " = " << state_ << endl;
+  integrate(dt);
+  
+  sotDEBUG(25) << "q" << time << " = " << position_ << endl;
 
   /* Position the signals corresponding to sensors. */
-  stateSOUT .setConstant( state_ ); stateSOUT.setTime( time+1 );
+  stateSOUT .setConstant( position_ ); stateSOUT.setTime( time+1 );
 
   //computation of the velocity signal
   if( controlInputType_==CONTROL_INPUT_TWO_INTEGRATION )
@@ -532,26 +689,9 @@ increment( const double & dt )
 
 
   // Others signals.
-  motorcontrolSOUT .setConstant( state_ );
+  motorcontrolSOUT .setConstant( position_ );
 }
 
-// Return true if it saturates.
-inline bool
-saturateBounds (double& val, const double& lower, const double& upper)
-{
-  assert (lower <= upper);
-  if (val < lower) { val = lower; return true; }
-  if (upper < val) { val = upper; return true; }
-  return false;
-}
-
-#define CHECK_BOUNDS(val, lower, upper, what)                                  \
-  for (int i = 0; i < val.size(); ++i) {                                       \
-    double old = val(i);                                                       \
-    if (saturateBounds (val(i), lower(i), upper(i)))                           \
-      dgRTLOG () << "Robot "what" bound violation at DoF " << i <<             \
-      ": requested " << old << " but set " << val(i) << '\n';                  \
--  }
 
 void Device::integrate( const double & dt )
 {
@@ -564,54 +704,24 @@ void Device::integrate( const double & dt )
     return;
   }
 
-  if (controlInputType_==CONTROL_INPUT_NO_INTEGRATION)
-  {
-    assert(state_.size()==controlIN.size()+6);
-    state_.tail(controlIN.size()) = controlIN;
-    CHECK_BOUNDS(state_, lowerPosition_, upperPosition_, "position");
-    return;
-  }
-
-  if( vel_control_.size() == 0 )
-    vel_control_ = Vector::Zero(controlIN.size());
-
-  // If control size is state size - 6, integrate joint angles,
-  // if control and state are of same size, integrate 6 first degrees of
-  // freedom as a translation and roll pitch yaw.
-
-  if (controlInputType_==CONTROL_INPUT_TWO_INTEGRATION)
-  {
-    // TODO check acceleration
-    // Position increment
-    vel_control_ = velocity_.tail(controlIN.size()) + (0.5*dt)*controlIN;
-    // Velocity integration.
-    velocity_.tail(controlIN.size()) += controlIN*dt;
-  }
-  else
-  {
-    vel_control_ = controlIN;
-  }
-
-  // Velocity bounds check
-  if (sanityCheck_) {
-    CHECK_BOUNDS(velocity_, lowerVelocity_, upperVelocity_, "velocity");
-  }
-
-  // Freeflyer integration
-  if (vel_control_.size() == state_.size()) {
-    integrateRollPitchYaw(state_, vel_control_, dt);
-  }
-
-  // Position integration
-  state_.tail(controlIN.size()) += vel_control_ * dt;
-
-  // Position bounds check
-  if (sanityCheck_) {
-    CHECK_BOUNDS(state_, lowerPosition_, upperPosition_, "position");
-  }
+    /* Integration of numerical values. This function is virtual. */
+  /// Iterates over joints.
+  JointDeviceVisitorIntegrate
+    aJointDeviceVisitorIntegrate(*this, dt);
+  
+  for(std::map<std::string,JointDeviceVariant>::iterator
+	joint_it = jointDevices_.begin();
+      joint_it != jointDevices_.end();
+      joint_it++)
+    {
+      boost::apply_visitor(aJointDeviceVisitorIntegrate,
+			   joint_it->second);
+    }
+  
 }
+
 
 /* --- DISPLAY ------------------------------------------------------------ */
 
 void Device::display ( std::ostream& os ) const
-{os <<name<<": "<<state_<<endl; }
+{os <<name<<": "<<position_<<endl; }

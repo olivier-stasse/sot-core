@@ -26,9 +26,8 @@ namespace dg = dynamicgraph;
 #include "sot/core/periodic-call.hh"
 #include <sot/core/matrix-geometry.hh>
 #include "sot/core/api.hh"
-
 #include "sot/core/joint-device.hh"
-#include "sot/core/joint-device.hxx"
+#include <pinocchio/multibody/liegroup/special-euclidean.hpp>
 
 namespace dynamicgraph {
   namespace sot {
@@ -78,16 +77,33 @@ namespace dynamicgraph {
       friend class JointDeviceVectorElement<LINEAR>;
       
     protected:
-      /// State vector of the robot
-      dg::Vector state_;
-      /// Velocity vector of the robot.
-      dg::Vector velocity_;
-      
-      bool sanityCheck_;
-      dg::Vector vel_control_;
-      /// Specifies the control input by each element of the state vector.
-      std::vector<ControlInput> controlInputType_;
 
+      /// \name Vectors related to the state.
+      ///@{
+      /// State vector of the robot (deprecated)
+      dg::Vector state_;
+
+      /// Position of each actuator
+      dg::Vector position_;
+      /// Velocity vector of each actuator.
+      dg::Vector velocity_;
+      /// Acceleration vector of each actuator.
+      dg::Vector acceleration_;
+      /// Torque vector of each actuator.
+      dg::Vector torque_;
+      ///@}
+
+      bool sanityCheck_;
+      
+      dg::Vector vel_control_;
+
+      /// Specifies the control input by each element of the state vector.
+      ControlInput controlInputType_;
+      std::map<std::string,ControlType> sotControlType_;
+      std::map<std::string,ControlType> hwControlType_;
+
+      /// Maps of joint devices.
+      std::map<std::string,JointDeviceVariant> jointDevices_;
       /// 
       bool withForceSignals[4];
       PeriodicCall periodicCallBefore_;
@@ -117,8 +133,14 @@ namespace dynamicgraph {
       virtual void setNoIntegration();
       /// Set control input type.
       virtual void setControlInputType(const std::string& cit);
+      virtual void setSoTControlType(const std::string &jointNames,
+				     const std::string &sotCtrlType);
+      virtual void setHWControlType(const std::string &jointNames,
+				    const std::string &hwCtrlType);
       virtual void increment(const double & dt = 5e-2);
-
+      /// Read directly the URDF model
+      void setURDFModel(std::string &aURDFModel);
+      
       /// \name Sanity check parameterization
       /// \{
       void setSanityCheck   (const bool & enableCheck);
@@ -127,6 +149,17 @@ namespace dynamicgraph {
       void setTorqueBounds  (const Vector& lower, const Vector& upper);
       /// \}
 
+      /// \name Set index in vector (position, velocity, acceleration, control)
+      /// \{
+      void setControlPos(const std::string &jointName,
+			 const unsigned & index);
+      void setPositionPos(const std::string &jointName,
+			  const unsigned & index);
+      void setVelocityPos(const std::string &jointName,
+			  const unsigned & index);
+      void setAccelerationPos(const std::string &jointName,
+			      const unsigned & index);
+      /// \}
     public: /* --- DISPLAY --- */
       virtual void display(std::ostream& os) const;
       SOT_CORE_EXPORT friend std::ostream&
@@ -185,6 +218,10 @@ namespace dynamicgraph {
       /// \}
 
     protected:
+      void setControlType(const std::string &jointNames,
+			  const std::string &strCtrlType,
+			  std::map<std::string, ControlType> &aCtrlType);
+      
       /// Compute roll pitch yaw angles of freeflyer joint.
       void integrateRollPitchYaw(dg::Vector& state, const dg::Vector& control,
                                  double dt);
@@ -214,6 +251,10 @@ namespace dynamicgraph {
     private:
       // Intermediate variable to avoid dynamic allocation
       dg::Vector forceZero6;
+
+      // URDF Model of the robot
+      urdf::ModelInterfaceSharedPtr modelURDF_;
+      
     };
   } // namespace sot
 } // namespace dynamicgraph

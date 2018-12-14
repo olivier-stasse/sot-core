@@ -14,6 +14,8 @@
 /* --- INCLUDE --------------------------------------------------------- */
 /* --------------------------------------------------------------------- */
 
+#include <boost/variant.hpp>
+
 #include <dynamic-graph/linear-algebra.h>
 namespace dg = dynamicgraph;
 /* SOT */
@@ -25,6 +27,9 @@ namespace dg = dynamicgraph;
 
 namespace dynamicgraph{
   namespace sot {
+
+    class Device;
+    
     /// Per Joint type
     
     /// Specifies the nature of one joint control
@@ -37,6 +42,11 @@ namespace dynamicgraph{
 	TORQUE=3
       };
 
+    const std::string ControlType_s[] =
+      {
+	"POSITION","VELOCITY","ACCELERATION","TORQUE"
+      };
+    
     /// Enum joint type
     enum JointType
       {
@@ -58,49 +68,81 @@ namespace dynamicgraph{
       /// \brief Boolean to verify sanity check.
       unsigned int sanityCheckFlags_;
       /// \brief Joint Name.
-      string jointName_;
+      std::string jointName_;
       /// \brief Control type from the SoT side.
       ControlType sotControlType_;
       /// \brief Hardware control type 
       ControlType hwControlType_;
       /// \brief Joint type
       JointType jointType_;
+
+      /// Vector of velocity.
+      dg::Vector velocity_;
+      
       /// \brief Size of the control information
       unsigned int size_;
-      /// \brief Position of the joint state in the global state vector.
-      unsigned int stateVectorPos_;
+      /// \brief Position of the joint state in the global position vector.
+      unsigned int positionVectorPos_;
       /// \brief Position of the joint velocity in the global velocity vector.
       unsigned int velocityVectorPos_;
       /// \brief Position of the joint control in the global control vector.
       unsigned int controlVectorPos_;
+      /// \brief Acceleration of the joint control in the global acceleration vector.
+      unsigned int accelerationVectorPos_;
 
       /// \brief Upper, lower velocity bounds;
-      double lowerPos_,upperPos_,lowerVel_,upperVel_,
+      dg::Vector lowerPos_,upperPos_,lowerVel_,upperVel_,
 	lowerTorque_,upperTorque_;
 
     public:
+      // Contrustor.
+      JointDeviceVectorElement(unsigned int lsize=1);
+
+      /// \name Set joint name.
+      void setJointName(const std::string &aname);
+      
       /// \name Set control type for the SoT side and the Hardware side.
       ///@{
       void setSotControlType(ControlType aControlType);
       void setHWControlType(ControlType aControlType);
       ///@}
 
-      void setJointType(JointType aJointType);
-      void setStateVectorPos(unsigned int aStateVectorPos_);
-      void setVelocityVectorPos(unsigned int aVelocityVectorPos_);
+      /// \name Set the position of the actuator in their respective vector
+      /// @{
+      /// \brief Position vector position
+      void setPositionVectorPos(unsigned int aStateVectorPos);
+      /// \brief Velocity vector position
+      void setVelocityVectorPos(unsigned int aVelocityVectorPos);
+      /// \brief Acceleration vector position
+      void setAccelerationVectorPos(unsigned int anAccelerationVectorPos);
+      /// @}
       
+      void setControlVectorPos(unsigned int aControlVectorPos);
       /// Integrate the control part 
-      void integrate(const double &dt);
-
+      void integrate(Device &aDevice, const double &dt);
+      const JointType & getJointType();
+      
+      /// \name Handle bounds
+      /// @{
+      /// \brief Saturate bounds
+      bool saturateBounds(double &val,
+			  const double& lower,
+			  const double& upper);
+      /// \brief Check bounds
+      void checkBounds(dg::Vector &val, unsigned int start,
+		       dg::Vector &lower,
+		       dg::Vector &upper,
+		       const std::string &what);
+      
       /// \name Set limits
       /// Here we assume that Joint 
       ///@{
       /// \brief Set position limits
-      void setPositionBounds(const double &lower, const double &upper);
+      void setPositionBounds(const Vector &lower, const Vector &upper);
       /// \brief Set velocity limits
-      void setVelocityBounds(const double &lower, const double &upper);
+      void setVelocityBounds(const Vector &lower, const Vector &upper);
       /// \brief Set torque limits
-      void setTorqueBounds(const double &lower, const double &upper);
+      void setTorqueBounds(const Vector &lower, const Vector &upper);
       /// \brief Modifies the control part
       void saturateBounds();
       /// \brief Check the boundaries and displays the problematic joint
@@ -109,6 +151,14 @@ namespace dynamicgraph{
       ///@}
     };
 
+    typedef JointDeviceVectorElement<FREE_FLYER> JointDeviceFreeFlyer;
+    typedef JointDeviceVectorElement<REVOLUTE> JointDeviceRevolute;
+    typedef JointDeviceVectorElement<LINEAR> JointDeviceLinear;
+    
+    typedef boost::variant<JointDeviceFreeFlyer,
+			   JointDeviceRevolute,
+			   JointDeviceLinear>
+    JointDeviceVariant;
   } //namespace sot
 } // namespace dynamicgraph
 
