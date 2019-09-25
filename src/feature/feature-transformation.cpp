@@ -57,13 +57,17 @@ FeatureTransformation( const string& pointName )
     , faMfbDes ( NULL,"FeatureTransformation("+name+")::input(matrixHomo)::faMfbDes")
     , faMfbDesDot ( NULL,"FeatureTransformation("+name+")::input(vector)::faMfbDesDot")
 
-    , q_oMfb (boost::bind (&FeatureTransformation::computeQoMfb, this, _1, _2),
-        oMjb << jbMfb,
+    //, q_oMfb (boost::bind (&FeatureTransformation::computeQoMfb, this, _1, _2),
+        //oMjb << jbMfb,
+    , q_oMfb (
         "FeatureTransformation("+name+")::output(vector7)::q_oMfb")
-    , q_oMfbDes (boost::bind (&FeatureTransformation::computeQoMfbDes, this, _1, _2),
-        oMja << jaMfa << faMfbDes,
+    //, q_oMfbDes (boost::bind (&FeatureTransformation::computeQoMfbDes, this, _1, _2),
+        //oMja << jaMfa << faMfbDes,
+    , q_oMfbDes (
         "FeatureTransformation("+name+")::output(vector7)::q_oMfbDes")
 {
+  q_oMfb   .setFunction (boost::bind (&FeatureTransformation::computeQoMfb, this, _1, _2));
+  q_oMfbDes.setFunction (boost::bind (&FeatureTransformation::computeQoMfbDes, this, _1, _2));
   oMja.setConstant (Id);
   jaMfa.setConstant (Id);
   jbMfb.setConstant (Id);

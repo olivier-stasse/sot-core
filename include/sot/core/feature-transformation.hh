@@ -68,11 +68,13 @@ class SOT_CORE_DLLAPI FeatureTransformation
   */
   /// Transformation of <em>Frame B</em> wrt to <em>world frame</em>.
   /// It is expressed as a translation followed by a quaternion.
-  SignalTimeDependent< Vector7, int > q_oMfb;
+  Signal< Vector7, int > q_oMfb;
+  //SignalTimeDependent< Vector7, int > q_oMfb;
 
   /// Transformation of <em>Frame B*</em> wrt to <em>world frame</em>.
   /// It is expressed as a translation followed by a quaternion.
-  SignalTimeDependent< Vector7, int > q_oMfbDes;
+  Signal< Vector7, int > q_oMfbDes;
+  //SignalTimeDependent< Vector7, int > q_oMfbDes;
   /*! @} */
 
   using FeatureAbstract::selectionSIN;
