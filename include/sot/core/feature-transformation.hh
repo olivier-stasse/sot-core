@@ -92,6 +92,7 @@ class SOT_CORE_DLLAPI FeatureTransformation
   FeatureTransformation( const std::string& name );
   virtual ~FeatureTransformation( void ) {}
 
+  void  addDependenciesFromReferences();
   virtual unsigned int& getDimension( unsigned int & dim, int time );
 
   virtual dg::Vector& computeError( dg::Vector& res,int time );

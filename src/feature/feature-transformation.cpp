@@ -74,18 +74,12 @@ FeatureTransformation( const string& pointName )
   faMfbDes.setConstant (Id);
   faMfbDesDot.setConstant (Vector::Zero(6));
 
-  jacobianSOUT.addDependencies(q_oMfbDes << q_oMfb << jbMfb
-      << jaMfa << faMfbDes
-      << jaJja << jbJjb );
-
-  errorSOUT.addDependencies( q_oMfbDes << q_oMfb );
 
   signalRegistration( oMja << jaMfa << oMjb << jbMfb << jaJja << jbJjb );
   signalRegistration (errordotSOUT << faMfbDes << faMfbDesDot);
 
   errordotSOUT.setFunction (boost::bind (&FeatureTransformation::computeErrorDot,
 					 this, _1, _2));
-  errordotSOUT.addDependencies (q_oMfbDes << q_oMfb << faMfbDes << faMfbDesDot);
 
   // Commands
   //
@@ -109,6 +103,27 @@ static inline void check (const FeatureTransformation& ft)
   assert (ft. jbMfb.isPlugged() );
   assert (ft. faMfbDes   .isPlugged() );
   assert (ft. faMfbDesDot.isPlugged() );
+}
+
+void FeatureTransformation::
+addDependenciesFromReferences()
+{
+  jacobianSOUT.addDependency(q_oMfbDes);
+  jacobianSOUT.addDependency( q_oMfb);
+  jacobianSOUT.addDependency(jbMfb);
+  jacobianSOUT.addDependency(jaMfa);
+  jacobianSOUT.addDependency(faMfbDes);
+  jacobianSOUT.addDependency(jaJja);
+  jacobianSOUT.addDependency(jbJjb );
+
+  errorSOUT.addDependency( q_oMfbDes);
+  errorSOUT.addDependency(q_oMfb );
+
+  errordotSOUT.addDependency(q_oMfbDes);
+  errordotSOUT.addDependency(q_oMfb);
+  errordotSOUT.addDependency(faMfbDes);
+  errordotSOUT.addDependency(faMfbDesDot);
+    
 }
 
 unsigned int& FeatureTransformation::
